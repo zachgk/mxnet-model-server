@@ -18,6 +18,7 @@ Communication message format: JSON message
 import argparse
 import csv
 import os
+import pprint
 import shutil
 import subprocess
 import time
@@ -42,10 +43,11 @@ def run_single_benchmark(models, jmx, threads=10):
     if os.path.exists(OUT_DIR):
         shutil.rmtree(OUT_DIR)
 
+    output = None if args.verbose else subprocess.DEVNULL
     # start MMS
     models_str = ' '.join(['{}={}'.format(name, path) for name, path in models.items()])
     mms_call = 'mxnet-model-server --log-file /dev/null --models {}'.format(models_str)
-    mms = subprocess.Popen(mms_call, shell=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    mms = subprocess.Popen(mms_call, shell=True, stdout=output, stderr=output)
     time.sleep(3)
 
     # temp files
@@ -59,28 +61,23 @@ def run_single_benchmark(models, jmx, threads=10):
         'port': 8080,
         'threads': threads,
         'loops': 10,
+        'path': 'cnn/predict',
         'filepath': KITTEN
     }
     abs_jmx = os.path.join(os.getcwd(), 'jmx', jmx)
     jmeter_args_str = ' '.join(['-J{}={}'.format(key, val) for key, val in jmeter_args.items()])
     jmeter_call = '/usr/local/bin/jmeter -n -t {} {} -l {} -j {}'.format(abs_jmx, jmeter_args_str, tmpfile, logfile)
-    jmeter = subprocess.Popen(jmeter_call.split(' '), stdout=subprocess.PIPE)
+    jmeter = subprocess.Popen(jmeter_call.split(' '), stdout=output, stderr=output)
     jmeter.wait()
-    if args.verbose:
-        print(jmeter.stdout.read().decode())
 
     # run AggregateReport
     jmeter_version = os.listdir('/usr/local/Cellar/jmeter')[0]
     ag_cmd = '/usr/local/Cellar/jmeter/{}/libexec/lib/ext/CMDRunner.jar'.format(jmeter_version)
     ag_call = 'java -jar {} --tool Reporter --generate-csv {} --input-jtl {} --plugin-type AggregateReport'.format(ag_cmd, outfile, tmpfile)
-    ag = subprocess.Popen(ag_call.split(' '), stdout=subprocess.PIPE)
+    ag = subprocess.Popen(ag_call.split(' '), stdout=output, stderr=output)
     ag.wait()
-    if args.verbose:
-        print(ag.stdout.read().decode())
 
     mms.kill()
-    if args.verbose:
-        print(mms.stdout.read().decode())
 
     with open(outfile) as f:
         report = dict(list(csv.DictReader(f))[0])
@@ -89,7 +86,8 @@ def run_single_benchmark(models, jmx, threads=10):
 
 def run_multi_benchmark(key, xs, *args, **kwargs):
     reports = dict()
-    for x in xs:
+    for i, x in enumerate(xs):
+        print("Running value {}={} (value {}/{})".format(key, x, i+1, len(xs)))
         kwargs[key] = x
         report = run_single_benchmark(*args, **kwargs)
         reports[x] = report
@@ -121,11 +119,12 @@ class Benchmarks:
 
 def run_benchmark(rname):
     if hasattr(Benchmarks, rname):
+        print("\nRunning benchmark {}".format(rname))
         res = getattr(Benchmarks, rname)()
-        print(res)
+        pprint.pprint(res)
         return(res)
     else:
-        raise Exception("No benchmark rnamed {}".format(rname))
+        raise Exception("No benchmark named {}".format(rname))
 
 
 if __name__ == '__main__':

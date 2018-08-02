@@ -43,7 +43,7 @@
           <stringProp name="HTTPSampler.port">${__P(port,)}</stringProp>
           <stringProp name="HTTPSampler.protocol"></stringProp>
           <stringProp name="HTTPSampler.contentEncoding"></stringProp>
-          <stringProp name="HTTPSampler.path">resnet-18/predict</stringProp>
+          <stringProp name="HTTPSampler.path">${__P(path,)}</stringProp>
           <stringProp name="HTTPSampler.method">POST</stringProp>
           <boolProp name="HTTPSampler.follow_redirects">true</boolProp>
           <boolProp name="HTTPSampler.auto_redirects">false</boolProp>

@@ -17,6 +17,7 @@ Communication message format: JSON message
 
 import argparse
 import csv
+import matplotlib.pyplot as plt
 import os
 import pprint
 import shutil
@@ -28,25 +29,32 @@ BENCHMARK_DIR = "/tmp/MMSBenchmark/"
 ALL_BENCHMARKS = ['cnn', 'concurrent_inference']
 
 OUT_DIR = os.path.join(BENCHMARK_DIR, 'out/')
-MODEL_DIR = os.path.join(BENCHMARK_DIR, 'model/')
-CNN = os.path.join(MODEL_DIR, 'cnn.model')
-KITTEN = os.path.join(BENCHMARK_DIR, 'kitten')
+RESOURCE_DIR = os.path.join(BENCHMARK_DIR, 'resource/')
 
-def get_resource(url, path):
+RESOURCE_MAP = {
+    'cnn.model': 'https://s3.amazonaws.com/model-server/models/squeezenet_v1.1/squeezenet_v1.1.model',
+    'kitten.jpg': 'https://s3.amazonaws.com/model-server/inputs/kitten.jpg',
+}
+
+def get_resource(name):
+    url = RESOURCE_MAP[name]
+    path = os.path.join(RESOURCE_DIR, name)
     if not os.path.exists(path):
         directory = os.path.dirname(path)
-        if os.path.exists(directory):
+        if not os.path.exists(directory):
             os.makedirs(directory)
         urlretrieve(url, path)
+    return path
 
-def run_single_benchmark(models, jmx, threads=10):
+def run_single_benchmark(models, jmx, path, jmeter_args=dict(), mms_args='', threads=10):
     if os.path.exists(OUT_DIR):
         shutil.rmtree(OUT_DIR)
+    os.makedirs(OUT_DIR)
+    output = None if pargs.verbose else subprocess.DEVNULL
 
-    output = None if args.verbose else subprocess.DEVNULL
     # start MMS
     models_str = ' '.join(['{}={}'.format(name, path) for name, path in models.items()])
-    mms_call = 'mxnet-model-server --log-file /dev/null --models {}'.format(models_str)
+    mms_call = 'mxnet-model-server --log-file /dev/null {} --models {}'.format(mms_args, models_str)
     mms = subprocess.Popen(mms_call, shell=True, stdout=output, stderr=output)
     time.sleep(3)
 
@@ -56,16 +64,16 @@ def run_single_benchmark(models, jmx, threads=10):
     outfile = os.path.join(OUT_DIR, 'out.csv')
 
     # run jmeter
-    jmeter_args = {
+    run_jmeter_args = {
         'hostname': 'localhost',
         'port': 8080,
         'threads': threads,
-        'loops': 10,
-        'path': 'cnn/predict',
-        'filepath': KITTEN
+        'loops': pargs.loops,
+        'path': path
     }
+    run_jmeter_args.update(jmeter_args)
     abs_jmx = os.path.join(os.getcwd(), 'jmx', jmx)
-    jmeter_args_str = ' '.join(['-J{}={}'.format(key, val) for key, val in jmeter_args.items()])
+    jmeter_args_str = ' '.join(['-J{}={}'.format(key, val) for key, val in run_jmeter_args.items()])
     jmeter_call = '/usr/local/bin/jmeter -n -t {} {} -l {} -j {}'.format(abs_jmx, jmeter_args_str, tmpfile, logfile)
     jmeter = subprocess.Popen(jmeter_call.split(' '), stdout=output, stderr=output)
     jmeter.wait()
@@ -84,6 +92,20 @@ def run_single_benchmark(models, jmx, threads=10):
 
     return report
 
+def plot_multi_latencies(reports, xlabel):
+    keys = sorted(list(reports.keys()))
+    line_options = ['average', 'aggregate_report_90%_line', 'aggregate_report_95%_line', 'aggregate_report_99%_line']
+    for line in line_options:
+        plt.plot(keys, [reports[k][line] for k in keys])
+    plt.title('Latencies')
+    plt.xlabel(xlabel)
+    plt.ylabel('Latency (ms)')
+    plt.legend(line_options, loc='upper left')
+    plt.savefig(os.path.join(OUT_DIR, 'latencyPercentiles.png'))
+    if pargs.output:
+        plt.show()
+    plt.close()
+
 def run_multi_benchmark(key, xs, *args, **kwargs):
     reports = dict()
     for i, x in enumerate(xs):
@@ -91,6 +113,7 @@ def run_multi_benchmark(key, xs, *args, **kwargs):
         kwargs[key] = x
         report = run_single_benchmark(*args, **kwargs)
         reports[x] = report
+    plot_multi_latencies(reports, key)
     return reports
 
 
@@ -104,27 +127,31 @@ class Benchmarks:
         """
         Benchmarks load operation
         """
-        models = {'cnn': CNN}
-        return run_single_benchmark(models, 'basic.jmx')
+        models = {'cnn': get_resource('cnn.model')}
+        jmeter_args = {'filepath': get_resource('kitten.jpg')}
+        return run_single_benchmark(models, 'basic.jmx', 'cnn/predict', jmeter_args)
 
     @staticmethod
     def concurrent_inference():
         """
         Benchmarks number of concurrent inference requests
         """
-        models = {'cnn': CNN}
-        return run_multi_benchmark('threads', range(5, 16, 5), models, 'basic.jmx')
+        models = {'cnn': get_resource('cnn.model')}
+        jmeter_args = {'filepath': get_resource('kitten.jpg')}
+        return run_multi_benchmark('threads', range(5, 16, 5), models, 'basic.jmx', 'cnn/predict', jmeter_args)
 
 
 
-def run_benchmark(rname):
-    if hasattr(Benchmarks, rname):
-        print("\nRunning benchmark {}".format(rname))
-        res = getattr(Benchmarks, rname)()
-        pprint.pprint(res)
+def run_benchmark(name):
+    if hasattr(Benchmarks, name):
+        print("Running benchmark {}".format(name))
+        res = getattr(Benchmarks, name)()
+        if pargs.output:
+            pprint.pprint(res)
+        print('\n')
         return(res)
     else:
-        raise Exception("No benchmark named {}".format(rname))
+        raise Exception("No benchmark named {}".format(name))
 
 
 if __name__ == '__main__':
@@ -132,14 +159,13 @@ if __name__ == '__main__':
     target = parser.add_mutually_exclusive_group(required=True)
     target.add_argument('name', nargs='?', help='The name of the benchmark to run')
     target.add_argument('-a', '--all', action='store_true', help='Run all benchmarks')
+    parser.add_argument('-output-only', '--output-only', dest='output', action='store_false', help='Don\'t print plots and data')
+    parser.add_argument('--loops', nargs=1, type=int, default=10, help='Number of loops to run')
     parser.add_argument('-v', '--verbose', action='store_true', help='Display all output')
-    args = parser.parse_args()
+    pargs = parser.parse_args()
 
-    get_resource('https://s3.amazonaws.com/model-server/models/squeezenet_v1.1/squeezenet_v1.1.model', CNN)
-    get_resource('https://s3.amazonaws.com/model-server/inputs/kitten.jpg', KITTEN)
-
-    if args.all:
-        for name in ALL_BENCHMARKS:
-            run_benchmark(name)
+    if pargs.all:
+        for benchmark_name in ALL_BENCHMARKS:
+            run_benchmark(benchmark_name)
     else:
-        run_benchmark(args.name)
+        run_benchmark(pargs.name)

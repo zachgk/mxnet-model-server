@@ -46,16 +46,21 @@ def get_resource(name):
         urlretrieve(url, path)
     return path
 
+def run_process(cmd, **kwargs):
+    output = None if pargs.verbose else subprocess.DEVNULL
+    if pargs.print_commands:
+        print(' '.join(cmd) if isinstance(cmd, list) else cmd)
+    return subprocess.Popen(cmd, stdout=output, stderr=output, **kwargs)
+
 def run_single_benchmark(models, jmx, path, jmeter_args=dict(), mms_args='', threads=10):
     if os.path.exists(OUT_DIR):
         shutil.rmtree(OUT_DIR)
     os.makedirs(OUT_DIR)
-    output = None if pargs.verbose else subprocess.DEVNULL
 
     # start MMS
     models_str = ' '.join(['{}={}'.format(name, path) for name, path in models.items()])
     mms_call = 'mxnet-model-server --log-file /dev/null {} --models {}'.format(mms_args, models_str)
-    mms = subprocess.Popen(mms_call, shell=True, stdout=output, stderr=output)
+    mms = run_process(mms_call, shell=True)
     time.sleep(3)
 
     # temp files
@@ -75,14 +80,14 @@ def run_single_benchmark(models, jmx, path, jmeter_args=dict(), mms_args='', thr
     abs_jmx = os.path.join(os.getcwd(), 'jmx', jmx)
     jmeter_args_str = ' '.join(['-J{}={}'.format(key, val) for key, val in run_jmeter_args.items()])
     jmeter_call = '/usr/local/bin/jmeter -n -t {} {} -l {} -j {}'.format(abs_jmx, jmeter_args_str, tmpfile, logfile)
-    jmeter = subprocess.Popen(jmeter_call.split(' '), stdout=output, stderr=output)
+    jmeter = run_process(jmeter_call.split(' '))
     jmeter.wait()
 
     # run AggregateReport
     jmeter_version = os.listdir('/usr/local/Cellar/jmeter')[0]
     ag_cmd = '/usr/local/Cellar/jmeter/{}/libexec/lib/ext/CMDRunner.jar'.format(jmeter_version)
     ag_call = 'java -jar {} --tool Reporter --generate-csv {} --input-jtl {} --plugin-type AggregateReport'.format(ag_cmd, outfile, tmpfile)
-    ag = subprocess.Popen(ag_call.split(' '), stdout=output, stderr=output)
+    ag = run_process(ag_call.split(' '))
     ag.wait()
 
     mms.kill()
@@ -129,7 +134,7 @@ class Benchmarks:
         """
         models = {'cnn': get_resource('cnn.model')}
         jmeter_args = {'filepath': get_resource('kitten.jpg')}
-        return run_single_benchmark(models, 'basic.jmx', 'cnn/predict', jmeter_args)
+        return run_single_benchmark(models, 'single.jmx', 'cnn/predict', jmeter_args)
 
     @staticmethod
     def concurrent_inference():
@@ -138,7 +143,7 @@ class Benchmarks:
         """
         models = {'cnn': get_resource('cnn.model')}
         jmeter_args = {'filepath': get_resource('kitten.jpg')}
-        return run_multi_benchmark('threads', range(5, 16, 5), models, 'basic.jmx', 'cnn/predict', jmeter_args)
+        return run_multi_benchmark('threads', range(5, 16, 5), models, 'single.jmx', 'cnn/predict', jmeter_args)
 
 
 
@@ -159,7 +164,8 @@ if __name__ == '__main__':
     target = parser.add_mutually_exclusive_group(required=True)
     target.add_argument('name', nargs='?', help='The name of the benchmark to run')
     target.add_argument('-a', '--all', action='store_true', help='Run all benchmarks')
-    parser.add_argument('-output-only', '--output-only', dest='output', action='store_false', help='Don\'t print plots and data')
+    parser.add_argument('--output-only', dest='output', action='store_false', help='Don\'t print plots and data')
+    parser.add_argument('--print-commands', dest='print_commands', action='store_true', help='Print the commands that are run')
     parser.add_argument('--loops', nargs=1, type=int, default=10, help='Number of loops to run')
     parser.add_argument('-v', '--verbose', action='store_true', help='Display all output')
     pargs = parser.parse_args()

@@ -36,6 +36,9 @@ RESOURCE_MAP = {
     'kitten.jpg': 'https://s3.amazonaws.com/model-server/inputs/kitten.jpg',
 }
 
+JMETER_VERSION = os.listdir('/usr/local/Cellar/jmeter')[0]
+CMDRUNNER = '/usr/local/Cellar/jmeter/{}/libexec/lib/ext/CMDRunner.jar'.format(JMETER_VERSION)
+
 def get_resource(name):
     url = RESOURCE_MAP[name]
     path = os.path.join(RESOURCE_DIR, name)
@@ -52,10 +55,12 @@ def run_process(cmd, **kwargs):
         print(' '.join(cmd) if isinstance(cmd, list) else cmd)
     return subprocess.Popen(cmd, stdout=output, stderr=output, **kwargs)
 
-def run_single_benchmark(models, jmx, path, jmeter_args=dict(), mms_args='', threads=10):
-    if os.path.exists(OUT_DIR):
-        shutil.rmtree(OUT_DIR)
-    os.makedirs(OUT_DIR)
+def run_single_benchmark(models, jmx, path, jmeter_args=dict(), mms_args='', threads=10, out_dir=None):
+    if out_dir is None:
+        out_dir = OUT_DIR
+    if os.path.exists(out_dir):
+        shutil.rmtree(out_dir)
+    os.makedirs(out_dir)
 
     # start MMS
     models_str = ' '.join(['{}={}'.format(name, path) for name, path in models.items()])
@@ -64,9 +69,9 @@ def run_single_benchmark(models, jmx, path, jmeter_args=dict(), mms_args='', thr
     time.sleep(3)
 
     # temp files
-    tmpfile = os.path.join(OUT_DIR, 'output.jtl')
-    logfile = os.path.join(OUT_DIR, 'jmeter.log')
-    outfile = os.path.join(OUT_DIR, 'out.csv')
+    tmpfile = os.path.join(out_dir, 'output.jtl')
+    logfile = os.path.join(out_dir, 'jmeter.log')
+    outfile = os.path.join(out_dir, 'out.csv')
 
     # run jmeter
     run_jmeter_args = {
@@ -84,9 +89,7 @@ def run_single_benchmark(models, jmx, path, jmeter_args=dict(), mms_args='', thr
     jmeter.wait()
 
     # run AggregateReport
-    jmeter_version = os.listdir('/usr/local/Cellar/jmeter')[0]
-    ag_cmd = '/usr/local/Cellar/jmeter/{}/libexec/lib/ext/CMDRunner.jar'.format(jmeter_version)
-    ag_call = 'java -jar {} --tool Reporter --generate-csv {} --input-jtl {} --plugin-type AggregateReport'.format(ag_cmd, outfile, tmpfile)
+    ag_call = 'java -jar {} --tool Reporter --generate-csv {} --input-jtl {} --plugin-type AggregateReport'.format(CMDRUNNER, outfile, tmpfile)
     ag = run_process(ag_call.split(' '))
     ag.wait()
 
@@ -112,13 +115,45 @@ def plot_multi_latencies(reports, xlabel):
     plt.close()
 
 def run_multi_benchmark(key, xs, *args, **kwargs):
+    if os.path.exists(OUT_DIR):
+        shutil.rmtree(OUT_DIR)
+    os.makedirs(OUT_DIR)
+
     reports = dict()
+    out_dirs = []
     for i, x in enumerate(xs):
         print("Running value {}={} (value {}/{})".format(key, x, i+1, len(xs)))
         kwargs[key] = x
-        report = run_single_benchmark(*args, **kwargs)
+        out_dir = os.path.join(OUT_DIR, str(i+1))
+        out_dirs.append(out_dir)
+        report = run_single_benchmark(*args, out_dir=out_dir, **kwargs)
         reports[x] = report
-    plot_multi_latencies(reports, key)
+
+    # files
+    merge_results = os.path.join(OUT_DIR, 'merge-results.properties')
+    joined = os.path.join(OUT_DIR, 'joined.csv')
+
+    # merge runs together
+    inputJtls = [os.path.join(out_dirs[i], 'output.jtl') for i in range(len(xs))]
+    prefixes = ["{} {}: ".format(key, x) for x in xs]
+    baseJtl = inputJtls[0]
+    basePrefix = prefixes[0]
+    for i in range(1, len(xs), 3): # MergeResults only joins up to 4 at a time
+        with open(merge_results, 'w') as f:
+            curInputJtls = [baseJtl] + inputJtls[i:i+3]
+            curPrefixes = [basePrefix] + prefixes[i:i+3]
+            for j, (jtl, p) in enumerate(zip(curInputJtls, curPrefixes)):
+                f.write("inputJtl{}={}\n".format(j+1, jtl))
+                f.write("prefixLabel{}={}\n".format(j+1, p))
+                f.write("\n")
+        merge_call = 'java -jar {} --tool Reporter --generate-csv joined.csv --input-jtl {} --plugin-type MergeResults'.format(CMDRUNNER, merge_results)
+        merge = run_process(merge_call.split(' '))
+        merge.wait()
+        shutil.move('joined.csv', joined) # MergeResults ignores path given and puts result into cwd
+        baseJtl = joined
+        basePrefix = ""
+
+    # plot_multi_latencies(reports, key)
     return reports
 
 
@@ -143,7 +178,7 @@ class Benchmarks:
         """
         models = {'cnn': get_resource('cnn.model')}
         jmeter_args = {'filepath': get_resource('kitten.jpg')}
-        return run_multi_benchmark('threads', range(5, 16, 5), models, 'single.jmx', 'cnn/predict', jmeter_args)
+        return run_multi_benchmark('threads', range(5, 5*11+1, 5), models, 'single.jmx', 'cnn/predict', jmeter_args)
 
 
 

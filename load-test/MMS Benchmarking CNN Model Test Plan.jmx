@@ -117,8 +117,8 @@
         <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="Inference Request" enabled="true">
           <elementProp name="HTTPsampler.Files" elementType="HTTPFileArgs">
             <collectionProp name="HTTPFileArgs.files">
-              <elementProp name="${__P(input_filepath,)}" elementType="HTTPFileArg">
-                <stringProp name="File.path">${__P(input_filepath,)}</stringProp>
+              <elementProp name="${__P(input_filepath,/Users/ghaipiyu/Documents/git-repos/mxnet-model-server/frontend/server/kitten.jpg)}" elementType="HTTPFileArg">
+                <stringProp name="File.path">${__P(input_filepath,/Users/ghaipiyu/Documents/git-repos/mxnet-model-server/frontend/server/kitten.jpg)}</stringProp>
                 <stringProp name="File.paramname">data</stringProp>
                 <stringProp name="File.mimetype">image/jpeg</stringProp>
               </elementProp>
@@ -131,7 +131,7 @@
           <stringProp name="HTTPSampler.port"></stringProp>
           <stringProp name="HTTPSampler.protocol"></stringProp>
           <stringProp name="HTTPSampler.contentEncoding"></stringProp>
-          <stringProp name="HTTPSampler.path">/predictions/noop</stringProp>
+          <stringProp name="HTTPSampler.path">/predictions/squeezenet_v1.1</stringProp>
           <stringProp name="HTTPSampler.method">POST</stringProp>
           <boolProp name="HTTPSampler.follow_redirects">true</boolProp>
           <boolProp name="HTTPSampler.auto_redirects">false</boolProp>

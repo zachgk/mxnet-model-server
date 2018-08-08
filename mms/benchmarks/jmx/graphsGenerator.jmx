@@ -42,12 +42,12 @@
           <stringProp name="limitRows">150</stringProp>
           <stringProp name="lineWeight"></stringProp>
           <stringProp name="lowCountLimit"></stringProp>
-          <stringProp name="outputBaseFolder">${__P(raw_output,/Users/ghaipiyu/Documents/git-repos/mxnet-model-server/load-test/res_graphs/)}</stringProp>
+          <stringProp name="outputBaseFolder">${__P(raw_output)}</stringProp>
           <boolProp name="paintGradient">true</boolProp>
           <boolProp name="paintZeroing">true</boolProp>
           <boolProp name="preventOutliers">false</boolProp>
           <boolProp name="relativeTimes">true</boolProp>
-          <stringProp name="resultsFileName">${__P(jtl_input,/Users/ghaipiyu/Documents/git-repos/mxnet-model-server/load-test/noop_log.jtl)}</stringProp>
+          <stringProp name="resultsFileName">${__P(jtl_input)}</stringProp>
           <stringProp name="startOffset"></stringProp>
           <stringProp name="successFilter"></stringProp>
         </kg.apc.jmeter.listener.GraphsGeneratorListener>

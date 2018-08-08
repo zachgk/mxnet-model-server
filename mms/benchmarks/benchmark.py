@@ -22,22 +22,32 @@ import os
 import pprint
 import shutil
 import subprocess
-import time
+import traceback
 from urllib.request import urlretrieve
 
 BENCHMARK_DIR = "/tmp/MMSBenchmark/"
-ALL_BENCHMARKS = ['cnn', 'concurrent_inference']
 
 OUT_DIR = os.path.join(BENCHMARK_DIR, 'out/')
 RESOURCE_DIR = os.path.join(BENCHMARK_DIR, 'resource/')
 
 RESOURCE_MAP = {
-    'cnn.model': 'https://s3.amazonaws.com/model-server/models/squeezenet_v1.1/squeezenet_v1.1.model',
-    'kitten.jpg': 'https://s3.amazonaws.com/model-server/inputs/kitten.jpg',
+    'kitten.jpg': 'https://s3.amazonaws.com/model-server/inputs/kitten.jpg'
 }
 
 JMETER_VERSION = os.listdir('/usr/local/Cellar/jmeter')[0]
 CMDRUNNER = '/usr/local/Cellar/jmeter/{}/libexec/lib/ext/CMDRunner.jar'.format(JMETER_VERSION)
+
+class ChDir:
+    def __init__(self, path):
+        self.curPath = os.getcwd()
+        self.path = path
+
+    def __enter__(self):
+        os.chdir(self.path)
+
+    def __exit__(self, *args):
+        os.chdir(self.curPath)
+
 
 def get_resource(name):
     url = RESOURCE_MAP[name]
@@ -55,48 +65,78 @@ def run_process(cmd, **kwargs):
         print(' '.join(cmd) if isinstance(cmd, list) else cmd)
     return subprocess.Popen(cmd, stdout=output, stderr=output, **kwargs)
 
-def run_single_benchmark(models, jmx, path, jmeter_args=dict(), mms_args='', threads=10, out_dir=None):
+def run_single_benchmark(jmx, jmeter_args=dict(), threads=10, out_dir=None):
     if out_dir is None:
         out_dir = OUT_DIR
     if os.path.exists(out_dir):
         shutil.rmtree(out_dir)
     os.makedirs(out_dir)
 
+    # Build MMS
+    if not os.path.exists('../../frontend/server'):
+        with ChDir('../../frontend'):
+            buildServer_call = './gradlew build'
+            buildServer = run_process(buildServer_call, shell=True)
+            buildServer.wait()
+
     # start MMS
-    models_str = ' '.join(['{}={}'.format(name, path) for name, path in models.items()])
-    mms_call = 'mxnet-model-server --log-file /dev/null {} --models {}'.format(mms_args, models_str)
-    mms = run_process(mms_call, shell=True)
-    time.sleep(3)
+    with ChDir('../../frontend/server'):
+        startServer_call = '../gradlew startServer'
+        startServer = run_process(startServer_call, shell=True)
+        startServer.wait()
 
-    # temp files
-    tmpfile = os.path.join(out_dir, 'output.jtl')
-    logfile = os.path.join(out_dir, 'jmeter.log')
-    outfile = os.path.join(out_dir, 'out.csv')
+    try:
+        # temp files
+        tmpfile = os.path.join(out_dir, 'output.jtl')
+        logfile = os.path.join(out_dir, 'jmeter.log')
+        outfile = os.path.join(out_dir, 'out.csv')
+        perfmon_file = os.path.join(out_dir, 'perfmon.csv')
+        graphsDir = os.path.join(out_dir, 'graphs')
+        reportDir = os.path.join(out_dir, 'report')
 
-    # run jmeter
-    run_jmeter_args = {
-        'hostname': 'localhost',
-        'port': 8080,
-        'threads': threads,
-        'loops': pargs.loops,
-        'path': path
-    }
-    run_jmeter_args.update(jmeter_args)
-    abs_jmx = os.path.join(os.getcwd(), 'jmx', jmx)
-    jmeter_args_str = ' '.join(['-J{}={}'.format(key, val) for key, val in run_jmeter_args.items()])
-    jmeter_call = '/usr/local/bin/jmeter -n -t {} {} -l {} -j {}'.format(abs_jmx, jmeter_args_str, tmpfile, logfile)
-    jmeter = run_process(jmeter_call.split(' '))
-    jmeter.wait()
+        # run jmeter
+        run_jmeter_args = {
+            'threads': threads,
+            'loops': pargs.loops,
+            'perfmon_file': perfmon_file
+        }
+        run_jmeter_args.update(jmeter_args)
+        abs_jmx = os.path.join(os.getcwd(), 'jmx', jmx)
+        jmeter_args_str = ' '.join(['-J{}={}'.format(key, val) for key, val in run_jmeter_args.items()])
+        jmeter_call = '/usr/local/bin/jmeter -n -t {} {} -l {} -j {} -e -o {}'.format(abs_jmx, jmeter_args_str, tmpfile, logfile, reportDir)
+        jmeter = run_process(jmeter_call.split(' '))
+        jmeter.wait()
 
-    # run AggregateReport
-    ag_call = 'java -jar {} --tool Reporter --generate-csv {} --input-jtl {} --plugin-type AggregateReport'.format(CMDRUNNER, outfile, tmpfile)
-    ag = run_process(ag_call.split(' '))
-    ag.wait()
+        # run AggregateReport
+        ag_call = 'java -jar {} --tool Reporter --generate-csv {} --input-jtl {} --plugin-type AggregateReport'.format(CMDRUNNER, outfile, tmpfile)
+        ag = run_process(ag_call.split(' '))
+        ag.wait()
 
-    mms.kill()
+        # Generate output graphs
+        gLogfile = os.path.join(out_dir, 'graph_jmeter.log')
+        graphing_args = {
+            'raw_output': graphsDir,
+            'jtl_input': tmpfile
+        }
+        gabs_jmx = os.path.join(os.getcwd(), 'jmx', 'graphsGenerator.jmx')
+        graphing_args_str = ' '.join(['-J{}={}'.format(key, val) for key, val in graphing_args.items()])
+        graphing_call = '/usr/local/bin/jmeter -n -t {} {} -j {}'.format(gabs_jmx, graphing_args_str, gLogfile)
+        graphing = run_process(graphing_call.split(' '))
+        graphing.wait()
 
-    with open(outfile) as f:
-        report = dict(list(csv.DictReader(f))[0])
+        with open(outfile) as f:
+            rows = list(csv.DictReader(f))
+            inferenceRes = [r for r in rows if r['sampler_label'] == 'Inference Request'][0]
+            report = dict(inferenceRes)
+
+    except Exception:  # pylint: disable=broad-except
+        traceback.print_exc()
+
+    # kill MMS
+    with ChDir('../../frontend/server'):
+        killServer_call = '../gradlew killServer'
+        killServer = run_process(killServer_call, shell=True)
+        killServer.wait()
 
     return report
 
@@ -165,24 +205,37 @@ class Benchmarks:
     @staticmethod
     def cnn():
         """
-        Benchmarks load operation
+        Benchmarks Convolutional Neural Network
         """
-        models = {'cnn': get_resource('cnn.model')}
-        jmeter_args = {'filepath': get_resource('kitten.jpg')}
-        return run_single_benchmark(models, 'single.jmx', 'cnn/predict', jmeter_args)
+        jmeter_args = {'input_filepath': get_resource('kitten.jpg')}
+        return run_single_benchmark('resnetPlan.jmx', jmeter_args)
+
+    @staticmethod
+    def lstm():
+        """
+        Benchmarks Residual Neural Network with LSTM
+        """
+        return run_single_benchmark('lstmPlan.jmx')
+
+    @staticmethod
+    def noop():
+        """
+        Benchmarks without noop model
+        """
+        return run_single_benchmark('noOpPlan.jmx')
 
     @staticmethod
     def concurrent_inference():
         """
         Benchmarks number of concurrent inference requests
         """
-        models = {'cnn': get_resource('cnn.model')}
-        jmeter_args = {'filepath': get_resource('kitten.jpg')}
-        return run_multi_benchmark('threads', range(5, 5*11+1, 5), models, 'single.jmx', 'cnn/predict', jmeter_args)
+        jmeter_args = {'input_filepath': get_resource('kitten.jpg')}
+        return run_multi_benchmark('threads', range(5, 5*3+1, 5), 'resnetPlan.jmx', jmeter_args)
 
 
 
 def run_benchmark(name):
+    name = name.lower()
     if hasattr(Benchmarks, name):
         print("Running benchmark {}".format(name))
         res = getattr(Benchmarks, name)()
@@ -206,7 +259,8 @@ if __name__ == '__main__':
     pargs = parser.parse_args()
 
     if pargs.all:
-        for benchmark_name in ALL_BENCHMARKS:
+        all_benchmarks = [b for b in dir(Benchmarks) if b[0] != '_']
+        for benchmark_name in all_benchmarks:
             run_benchmark(benchmark_name)
     else:
         run_benchmark(pargs.name)

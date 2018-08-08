@@ -125,7 +125,7 @@
             <collectionProp name="Arguments.arguments">
               <elementProp name="data" elementType="HTTPArgument">
                 <boolProp name="HTTPArgument.always_encode">false</boolProp>
-                <stringProp name="Argument.value">${__P(data,${__RandomString(10,qwertyuiopasdfghjklzxcvbnm)})}</stringProp>
+                <stringProp name="Argument.value">${__P(data,${__RandomString(10,abcdefghijklmnopqrstuvwxyz)})}</stringProp>
                 <stringProp name="Argument.metadata">=</stringProp>
                 <boolProp name="HTTPArgument.use_equals">true</boolProp>
                 <stringProp name="Argument.name">data</stringProp>
@@ -216,7 +216,7 @@
             <connectTime>true</connectTime>
           </value>
         </objProp>
-        <stringProp name="filename">/Users/ghaipiyu/Documents/git-repos/mxnet-model-server/load-test/perf_mon.csv</stringProp>
+        <stringProp name="filename">${__P(perfmon_file)}</stringProp>
         <longProp name="interval_grouping">1000</longProp>
         <boolProp name="graph_aggregated">false</boolProp>
         <stringProp name="include_sample_labels"></stringProp>

@@ -17,6 +17,7 @@ Communication message format: JSON message
 
 import argparse
 import csv
+import itertools
 import matplotlib.pyplot as plt
 import os
 import pprint
@@ -34,8 +35,17 @@ RESOURCE_MAP = {
     'kitten.jpg': 'https://s3.amazonaws.com/model-server/inputs/kitten.jpg'
 }
 
+MODEL_MAP = {
+    'squeezenet': ('cnnPlan.jmx', {'model': 'https://s3.amazonaws.com/model-server/models/squeezenet_v1.1/squeezenet_v1.1.model', 'input_filepath': 'kitten.jpg'}),
+    'resnet': ('resnetPlan.jmx', {'model': 'https://s3.amazonaws.com/model-server/models/resnet-18/resnet-18.model', 'input_filepath': 'kitten.jpg'}),
+    'lstm': ('lstmPlan.jmx', {'model': 'https://s3.amazonaws.com/model-server/models/lstm_ptb/lstm_ptb.model'}),
+    'noop': ('noOpPlan.jmx', {})
+}
+
 JMETER_VERSION = os.listdir('/usr/local/Cellar/jmeter')[0]
 CMDRUNNER = '/usr/local/Cellar/jmeter/{}/libexec/lib/ext/CMDRunner.jar'.format(JMETER_VERSION)
+
+ALL_BENCHMARKS = itertools.product(('single', 'concurrent_inference'), ('resnet', 'lstm', 'noop'))
 
 class ChDir:
     def __init__(self, path):
@@ -67,7 +77,7 @@ def run_process(cmd, **kwargs):
 
 def run_single_benchmark(jmx, jmeter_args=dict(), threads=10, out_dir=None):
     if out_dir is None:
-        out_dir = OUT_DIR
+        out_dir = os.path.join(OUT_DIR, benchmark_name, pargs.model)
     if os.path.exists(out_dir):
         shutil.rmtree(out_dir)
     os.makedirs(out_dir)
@@ -155,23 +165,24 @@ def plot_multi_latencies(reports, xlabel):
     plt.close()
 
 def run_multi_benchmark(key, xs, *args, **kwargs):
-    if os.path.exists(OUT_DIR):
-        shutil.rmtree(OUT_DIR)
-    os.makedirs(OUT_DIR)
+    out_dir = os.path.join(OUT_DIR, benchmark_name, pargs.model)
+    if os.path.exists(out_dir):
+        shutil.rmtree(out_dir)
+    os.makedirs(out_dir)
 
     reports = dict()
     out_dirs = []
     for i, x in enumerate(xs):
         print("Running value {}={} (value {}/{})".format(key, x, i+1, len(xs)))
         kwargs[key] = x
-        out_dir = os.path.join(OUT_DIR, str(i+1))
-        out_dirs.append(out_dir)
-        report = run_single_benchmark(*args, out_dir=out_dir, **kwargs)
+        sub_out_dir = os.path.join(out_dir, str(i+1))
+        out_dirs.append(sub_out_dir)
+        report = run_single_benchmark(*args, out_dir=sub_out_dir, **kwargs)
         reports[x] = report
 
     # files
-    merge_results = os.path.join(OUT_DIR, 'merge-results.properties')
-    joined = os.path.join(OUT_DIR, 'joined.csv')
+    merge_results = os.path.join(out_dir, 'merge-results.properties')
+    joined = os.path.join(out_dir, 'joined.csv')
 
     # merge runs together
     inputJtls = [os.path.join(out_dirs[i], 'output.jtl') for i in range(len(xs))]
@@ -196,6 +207,15 @@ def run_multi_benchmark(key, xs, *args, **kwargs):
     # plot_multi_latencies(reports, key)
     return reports
 
+def parseModel():
+    if benchmark_model in MODEL_MAP:
+        plan, jmeter_args = MODEL_MAP[benchmark_model]
+        for k, v in jmeter_args.items():
+            if v in RESOURCE_MAP:
+                jmeter_args[k] = get_resource(v)
+        return plan, jmeter_args
+    else:
+        raise Exception('Unknown model')
 
 class Benchmarks:
     """
@@ -203,48 +223,33 @@ class Benchmarks:
     """
 
     @staticmethod
-    def cnn():
+    def single():
         """
-        Benchmarks Convolutional Neural Network
+        Performs simple single benchmark
         """
-        jmeter_args = {'input_filepath': get_resource('kitten.jpg')}
-        return run_single_benchmark('resnetPlan.jmx', jmeter_args)
-
-    @staticmethod
-    def lstm():
-        """
-        Benchmarks Residual Neural Network with LSTM
-        """
-        return run_single_benchmark('lstmPlan.jmx')
-
-    @staticmethod
-    def noop():
-        """
-        Benchmarks without noop model
-        """
-        return run_single_benchmark('noOpPlan.jmx')
+        plan, jmeter_args = parseModel()
+        return run_single_benchmark(plan, jmeter_args)
 
     @staticmethod
     def concurrent_inference():
         """
         Benchmarks number of concurrent inference requests
         """
-        jmeter_args = {'input_filepath': get_resource('kitten.jpg')}
-        return run_multi_benchmark('threads', range(5, 5*3+1, 5), 'resnetPlan.jmx', jmeter_args)
+        plan, jmeter_args = parseModel()
+        return run_multi_benchmark('threads', range(5, 5*3+1, 5), plan, jmeter_args)
 
 
 
-def run_benchmark(name):
-    name = name.lower()
-    if hasattr(Benchmarks, name):
-        print("Running benchmark {}".format(name))
-        res = getattr(Benchmarks, name)()
+def run_benchmark():
+    if hasattr(Benchmarks, benchmark_name):
+        print("Running benchmark {} with model {}".format(benchmark_name, benchmark_model))
+        res = getattr(Benchmarks, benchmark_name)()
         if pargs.output:
             pprint.pprint(res)
         print('\n')
         return(res)
     else:
-        raise Exception("No benchmark named {}".format(name))
+        raise Exception("No benchmark benchmark_named {}".format(benchmark_name))
 
 
 if __name__ == '__main__':
@@ -252,6 +257,7 @@ if __name__ == '__main__':
     target = parser.add_mutually_exclusive_group(required=True)
     target.add_argument('name', nargs='?', help='The name of the benchmark to run')
     target.add_argument('-a', '--all', action='store_true', help='Run all benchmarks')
+    parser.add_argument('-m', '--model', nargs=1, type=str, dest='model', default='resnet', help='The model to run.  Can be a url or one of the defaults (squeezenet, lstm, resnet, noop)')
     parser.add_argument('--output-only', dest='output', action='store_false', help='Don\'t print plots and data')
     parser.add_argument('--print-commands', dest='print_commands', action='store_true', help='Print the commands that are run')
     parser.add_argument('--loops', nargs=1, type=int, default=10, help='Number of loops to run')
@@ -259,8 +265,9 @@ if __name__ == '__main__':
     pargs = parser.parse_args()
 
     if pargs.all:
-        all_benchmarks = [b for b in dir(Benchmarks) if b[0] != '_']
-        for benchmark_name in all_benchmarks:
-            run_benchmark(benchmark_name)
+        for benchmark_name, benchmark_model in ALL_BENCHMARKS:
+            run_benchmark()
     else:
-        run_benchmark(pargs.name)
+        benchmark_name = pargs.name.lower()
+        benchmark_model = pargs.model.lower()
+        run_benchmark()

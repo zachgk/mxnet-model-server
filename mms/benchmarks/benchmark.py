@@ -36,10 +36,10 @@ RESOURCE_MAP = {
 }
 
 MODEL_MAP = {
-    'squeezenet': ('cnnPlan.jmx', {'model': 'https://s3.amazonaws.com/model-server/models/squeezenet_v1.1/squeezenet_v1.1.model', 'input_filepath': 'kitten.jpg'}),
-    'resnet': ('resnetPlan.jmx', {'model': 'https://s3.amazonaws.com/model-server/models/resnet-18/resnet-18.model', 'input_filepath': 'kitten.jpg'}),
-    'lstm': ('lstmPlan.jmx', {'model': 'https://s3.amazonaws.com/model-server/models/lstm_ptb/lstm_ptb.model'}),
-    'noop': ('noOpPlan.jmx', {})
+    'squeezenet': ('imageInputModelPlan.jmx', {'model': 'https://s3.amazonaws.com/model-server/models/squeezenet_v1.1/squeezenet_v1.1.model', 'input_filepath': 'kitten.jpg'}),
+    'resnet': ('imageInputModelPlan.jmx', {'model': 'https://s3.amazonaws.com/model-server/models/resnet-18/resnet-18.model', 'input_filepath': 'kitten.jpg'}),
+    'lstm': ('textInputModelPlan.jmx', {'model': 'https://s3.amazonaws.com/model-server/models/lstm_ptb/lstm_ptb.model'}),
+    'noop': ('textInputModelPlan.jmx', {'model': 'noop.model'})
 }
 
 JMETER_VERSION = os.listdir('/usr/local/Cellar/jmeter')[0]

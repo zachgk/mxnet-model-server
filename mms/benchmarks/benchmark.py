@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 # Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # Licensed under the Apache License, Version 2.0 (the "License").
 # You may not use this file except in compliance with the License.
@@ -9,8 +11,7 @@
 # permissions and limitations under the License.
 
 """
-ModelServiceWorker is the worker that is started by the MMS front-end.
-Communication message format: JSON message
+Execute the MMS Benchmark.  For instructions, run with the --help flag
 """
 
 # pylint: disable=redefined-builtin
@@ -18,12 +19,14 @@ Communication message format: JSON message
 import argparse
 import csv
 import itertools
-import matplotlib.pyplot as plt
 import os
 import pprint
 import shutil
 import subprocess
+import sys
+import time
 import traceback
+from functools import reduce
 from urllib.request import urlretrieve
 
 BENCHMARK_DIR = "/tmp/MMSBenchmark/"
@@ -36,14 +39,26 @@ RESOURCE_MAP = {
 }
 
 MODEL_MAP = {
-    'squeezenet': ('imageInputModelPlan.jmx', {'model': 'https://s3.amazonaws.com/model-server/models/squeezenet_v1.1/squeezenet_v1.1.model', 'input_filepath': 'kitten.jpg'}),
-    'resnet': ('imageInputModelPlan.jmx', {'model': 'https://s3.amazonaws.com/model-server/models/resnet-18/resnet-18.model', 'input_filepath': 'kitten.jpg'}),
-    'lstm': ('textInputModelPlan.jmx', {'model': 'https://s3.amazonaws.com/model-server/models/lstm_ptb/lstm_ptb.model'}),
-    'noop': ('textInputModelPlan.jmx', {'model': 'noop.model'})
+    'squeezenet': ('imageInputModelPlan.jmx', {'url': 'https://s3.amazonaws.com/model-server/models/squeezenet_v1.1/squeezenet_v1.1.model', 'model_name': 'squeezenet', 'input_filepath': 'kitten.jpg'}),
+    'resnet': ('imageInputModelPlan.jmx', {'url': 'https://s3.amazonaws.com/model-server/models/resnet-18/resnet-18.model', 'model_name': 'resnet-18', 'input_filepath': 'kitten.jpg'}),
+    'lstm': ('textInputModelPlan.jmx', {'url': 'https://s3.amazonaws.com/model-server/models/lstm_ptb/lstm_ptb.model'}),
+    'noop': ('textInputModelPlan.jmx')
 }
 
-JMETER_VERSION = os.listdir('/usr/local/Cellar/jmeter')[0]
-CMDRUNNER = '/usr/local/Cellar/jmeter/{}/libexec/lib/ext/CMDRunner.jar'.format(JMETER_VERSION)
+JMETER_RESULT_SETTINGS = {
+    'jmeter.reportgenerator.overall_granularity': 1000,
+    # 'jmeter.reportgenerator.report_title': '"MMS Benchmark Report Dashboard"',
+    'aggregate_rpt_pct1': 50,
+    'aggregate_rpt_pct2': 90,
+    'aggregate_rpt_pct3': 99,
+}
+
+CELLAR = '/home/ubuntu/.linuxbrew/Cellar/jmeter' if 'linux' in sys.platform else '/usr/local/Cellar/jmeter'
+JMETER_VERSION = os.listdir(CELLAR)[0]
+CMDRUNNER = '{}/{}/libexec/lib/ext/CMDRunner.jar'.format(CELLAR, JMETER_VERSION)
+JMETER = '{}/{}/libexec/bin/jmeter'.format(CELLAR, JMETER_VERSION)
+MMS_BASE = reduce(lambda val,func: func(val), (os.path.abspath(__file__),) + (os.path.dirname,) * 3)
+
 
 ALL_BENCHMARKS = itertools.product(('single', 'concurrent_inference'), ('resnet', 'lstm', 'noop'))
 
@@ -69,11 +84,20 @@ def get_resource(name):
         urlretrieve(url, path)
     return path
 
-def run_process(cmd, **kwargs):
+def run_process(cmd, wait=True, **kwargs):
     output = None if pargs.verbose else subprocess.DEVNULL
-    if pargs.print_commands:
+    if pargs.verbose:
         print(' '.join(cmd) if isinstance(cmd, list) else cmd)
-    return subprocess.Popen(cmd, stdout=output, stderr=output, **kwargs)
+    if not kwargs.get('shell') and isinstance(cmd, str):
+        cmd = cmd.split(' ')
+    if 'stdout' not in kwargs:
+        kwargs['stdout'] = output
+    if 'stderr' not in kwargs:
+        kwargs['stderr'] = output
+    p = subprocess.Popen(cmd, **kwargs)
+    if wait:
+        p.wait()
+    return p
 
 def run_single_benchmark(jmx, jmeter_args=dict(), threads=10, out_dir=None):
     if out_dir is None:
@@ -82,18 +106,31 @@ def run_single_benchmark(jmx, jmeter_args=dict(), threads=10, out_dir=None):
         shutil.rmtree(out_dir)
     os.makedirs(out_dir)
 
-    # Build MMS
-    if not os.path.exists('../../frontend/server'):
-        with ChDir('../../frontend'):
-            buildServer_call = './gradlew build'
-            buildServer = run_process(buildServer_call, shell=True)
-            buildServer.wait()
+    # Start MMS
+    docker = 'nvidia-docker' if pargs.gpus else 'docker'
+    container = 'mms_benchmark_gpu' if pargs.gpus else 'mms_benchmark_cpu'
+    docker_check_call = "{} ps".format(docker)
+    docker_check = run_process(docker_check_call, stdout=subprocess.PIPE)
+    docker_check_all_call = "{} ps -a".format(docker)
+    docker_check_all = run_process(docker_check_all_call, stdout=subprocess.PIPE)
+    if container not in docker_check.stdout.read().decode():
+        if container in docker_check_all.stdout.read().decode():
+            docker_run_call = "{} start {}".format(docker, container)
+            run_process(docker_run_call)
+        else:
+            docker_run_call = "{} run --name {} -p 8080:8080 -v {}:/mxnet-model-server -itd vamshidhardk/mms_netty".format(docker, container, MMS_BASE)
+            run_process(docker_run_call)
+            run_process("{} exec -it {} sh -c 'cd /mxnet-model-server && pip install -U -e .'".format(docker, container), shell=True)
 
-    # start MMS
-    with ChDir('../../frontend/server'):
-        startServer_call = '../gradlew startServer'
-        startServer = run_process(startServer_call, shell=True)
-        startServer.wait()
+
+    with ChDir(MMS_BASE):
+        run_process('python setup.py bdist_wheel --universal')
+    docker_start_call = "{} exec {} mxnet-model-server --start".format(docker, container)
+    docker_start = run_process(docker_start_call, wait=False)
+    time.sleep(3)
+    docker_start.kill()
+
+
 
     try:
         # temp files
@@ -106,21 +143,27 @@ def run_single_benchmark(jmx, jmeter_args=dict(), threads=10, out_dir=None):
 
         # run jmeter
         run_jmeter_args = {
+            'hostname': '127.0.0.1',
+            'port': 8080,
+            'protocol': 'http',
+            'min_workers': 2,
+            'rampup': 5,
             'threads': threads,
             'loops': pargs.loops,
             'perfmon_file': perfmon_file
         }
+        if pargs.gpus:
+            run_jmeter_args['number_gpu'] = '&numberGpu={}'.format(pargs.gpus)
+        run_jmeter_args.update(JMETER_RESULT_SETTINGS)
         run_jmeter_args.update(jmeter_args)
         abs_jmx = os.path.join(os.getcwd(), 'jmx', jmx)
         jmeter_args_str = ' '.join(['-J{}={}'.format(key, val) for key, val in run_jmeter_args.items()])
-        jmeter_call = '/usr/local/bin/jmeter -n -t {} {} -l {} -j {} -e -o {}'.format(abs_jmx, jmeter_args_str, tmpfile, logfile, reportDir)
-        jmeter = run_process(jmeter_call.split(' '))
-        jmeter.wait()
+        jmeter_call = '{} -n -t {} {} -l {} -j {} -e -o {}'.format(JMETER, abs_jmx, jmeter_args_str, tmpfile, logfile, reportDir)
+        run_process(jmeter_call)
 
         # run AggregateReport
         ag_call = 'java -jar {} --tool Reporter --generate-csv {} --input-jtl {} --plugin-type AggregateReport'.format(CMDRUNNER, outfile, tmpfile)
-        ag = run_process(ag_call.split(' '))
-        ag.wait()
+        run_process(ag_call)
 
         # Generate output graphs
         gLogfile = os.path.join(out_dir, 'graph_jmeter.log')
@@ -128,41 +171,24 @@ def run_single_benchmark(jmx, jmeter_args=dict(), threads=10, out_dir=None):
             'raw_output': graphsDir,
             'jtl_input': tmpfile
         }
+        graphing_args.update(JMETER_RESULT_SETTINGS)
         gabs_jmx = os.path.join(os.getcwd(), 'jmx', 'graphsGenerator.jmx')
         graphing_args_str = ' '.join(['-J{}={}'.format(key, val) for key, val in graphing_args.items()])
-        graphing_call = '/usr/local/bin/jmeter -n -t {} {} -j {}'.format(gabs_jmx, graphing_args_str, gLogfile)
-        graphing = run_process(graphing_call.split(' '))
-        graphing.wait()
+        graphing_call = '{} -n -t {} {} -j {}'.format(JMETER, gabs_jmx, graphing_args_str, gLogfile)
+        run_process(graphing_call)
+
+        print("Output available at {}".format(out_dir))
+        print("Report generated at {}".format(os.path.join(reportDir, 'index.html')))
 
         with open(outfile) as f:
             rows = list(csv.DictReader(f))
             inferenceRes = [r for r in rows if r['sampler_label'] == 'Inference Request'][0]
             report = dict(inferenceRes)
 
+        return report
+
     except Exception:  # pylint: disable=broad-except
         traceback.print_exc()
-
-    # kill MMS
-    with ChDir('../../frontend/server'):
-        killServer_call = '../gradlew killServer'
-        killServer = run_process(killServer_call, shell=True)
-        killServer.wait()
-
-    return report
-
-def plot_multi_latencies(reports, xlabel):
-    keys = sorted(list(reports.keys()))
-    line_options = ['average', 'aggregate_report_90%_line', 'aggregate_report_95%_line', 'aggregate_report_99%_line']
-    for line in line_options:
-        plt.plot(keys, [reports[k][line] for k in keys])
-    plt.title('Latencies')
-    plt.xlabel(xlabel)
-    plt.ylabel('Latency (ms)')
-    plt.legend(line_options, loc='upper left')
-    plt.savefig(os.path.join(OUT_DIR, 'latencyPercentiles.png'))
-    if pargs.output:
-        plt.show()
-    plt.close()
 
 def run_multi_benchmark(key, xs, *args, **kwargs):
     out_dir = os.path.join(OUT_DIR, benchmark_name, pargs.model)
@@ -198,13 +224,11 @@ def run_multi_benchmark(key, xs, *args, **kwargs):
                 f.write("prefixLabel{}={}\n".format(j+1, p))
                 f.write("\n")
         merge_call = 'java -jar {} --tool Reporter --generate-csv joined.csv --input-jtl {} --plugin-type MergeResults'.format(CMDRUNNER, merge_results)
-        merge = run_process(merge_call.split(' '))
-        merge.wait()
+        run_process(merge_call)
         shutil.move('joined.csv', joined) # MergeResults ignores path given and puts result into cwd
         baseJtl = joined
         basePrefix = ""
 
-    # plot_multi_latencies(reports, key)
     return reports
 
 def parseModel():
@@ -254,12 +278,14 @@ def run_benchmark():
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(prog='mxnet-model-server-benchmarks', description='Benchmark MXNet Model Server')
+
     target = parser.add_mutually_exclusive_group(required=True)
     target.add_argument('name', nargs='?', help='The name of the benchmark to run')
     target.add_argument('-a', '--all', action='store_true', help='Run all benchmarks')
+
     parser.add_argument('-m', '--model', nargs=1, type=str, dest='model', default='resnet', help='The model to run.  Can be a url or one of the defaults (squeezenet, lstm, resnet, noop)')
+    parser.add_argument('-g', '--gpus', nargs=1, type=int, default=0, help='Number of gpus.  Specify to enable GPU call')
     parser.add_argument('--output-only', dest='output', action='store_false', help='Don\'t print plots and data')
-    parser.add_argument('--print-commands', dest='print_commands', action='store_true', help='Print the commands that are run')
     parser.add_argument('--loops', nargs=1, type=int, default=10, help='Number of loops to run')
     parser.add_argument('-v', '--verbose', action='store_true', help='Display all output')
     pargs = parser.parse_args()

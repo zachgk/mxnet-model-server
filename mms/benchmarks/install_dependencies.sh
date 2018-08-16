@@ -40,13 +40,16 @@ else
 fi
 
 echo "Installing JMeter through Brew"
-brew update
-brew install jmeter --with-plugins
+# Script would end on errors, but everything works fine
+brew update || {
+}
+brew install jmeter --with-plugins || {
+}
 
 wget https://jmeter-plugins.org/get/ -O /home/ubuntu/.linuxbrew/Cellar/jmeter/4.0/libexec/lib/ext/jmeter-plugins-manager-1.3.jar
 wget http://search.maven.org/remotecontent?filepath=kg/apc/cmdrunner/2.2/cmdrunner-2.2.jar -O /home/ubuntu/.linuxbrew/Cellar/jmeter/4.0/libexec/lib/cmdrunner-2.2.jar
 java -cp /home/ubuntu/.linuxbrew/Cellar/jmeter/4.0/libexec/lib/ext/jmeter-plugins-manager-1.3.jar org.jmeterplugins.repository.PluginManagerCMDInstaller
-/home/ubuntu/.linuxbrew/Cellar/jmeter/4.0/libexec/bin/PluginsManagerCMD.sh install jpgc-synthesis=2.1,jpgc-filterresults=2.1,jpgc-mergeresults,jpgc-cmd=2.1,jpgc-perfmon=2.1
+/home/ubuntu/.linuxbrew/Cellar/jmeter/4.0/libexec/bin/PluginsManagerCMD.sh install jpgc-synthesis=2.1,jpgc-filterresults=2.1,jpgc-mergeresults=2.1,jpgc-cmd=2.1,jpgc-perfmon=2.1
 
 echo "Install docker"
 sudo apt-get remove docker docker-engine docker.io
@@ -61,7 +64,7 @@ sudo add-apt-repository \
    $(lsb_release -cs) \
    stable"
 sudo apt-get update
-sudo apt-get install docker-ce
+sudo apt-get install -y docker-ce
 sudo groupadd docker
 sudo usermod -aG docker $USER
 

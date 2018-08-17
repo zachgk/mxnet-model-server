@@ -71,7 +71,8 @@ Run with custom options
 
 
 Run against an already running instance of MMS
-`./benchmark.py --mms 127.0.0.1:8443
+`./benchmark.py latency --mms 127.0.0.1:8443
+`./benchmark.py latency --mms https://localhost:8443
 
 
 Run verbose with only a single loop
@@ -81,3 +82,16 @@ Run verbose with only a single loop
 ## Benchmark options
 
 The full list of options can be found by running with the -h or --help flags.
+
+
+## Frontend Profiling
+
+The benchmarks can be used in conjunction with standard profiling tools such as JProfiler to analyze the system performance.  JProfiler can be downloaded from their [website](https://www.ej-technologies.com/products/jprofiler/overview.html).  Once downloaded, open up JProfiler and follow these steps:
+
+1. Run MMS directly through gradle (do not use docker).  This can be done either on your machine or on a remote machine accessible through SSH.
+2. In JProfiler, select "Attach" from the ribbon and attach to the ModelServer.  The process name in the attach window should be "com.amazonaws.ml.mms.ModelServer".  If it is on a remote machine, select "On another computer" in the attach window and enter the SSH details.  For the session startup settings, you can leave it with the defaults.  At this point, you should see live CPU and Memory Usage data on JProfiler's Telemetries section.
+3. Select Start Recordings in JProfiler's ribbon
+4. Run the Benchmark script targeting your running MMS instance.  It might run something like `./benchmark.py throughput --mms https://localhost:8443`.  It can be run on either your local machine or a remote machine (if you are running remote), but we recommend running the benchmark on the same machine as the model server to avoid confounding network latencies.
+5. Once the benchmark script has finished running, select Stop Recordings in JProfiler's ribbon
+
+Once you have stopped recording, you should be able to analyze the data.  One useful section to examine is CPU views > Call Tree and CPU views > Hot Spots to see where the processor time is going.

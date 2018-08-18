@@ -61,7 +61,8 @@ MMS_BASE = reduce(lambda val,func: func(val), (os.path.abspath(__file__),) + (os
 
 
 ALL_BENCHMARKS = list(itertools.product(('latency', 'throughput', 'concurrent_inference'), ('resnet', 'squeezenet'))) \
-               + list(itertools.product(('load', 'repeated_scale_calls'), ('resnet')))
+               + list(itertools.product(('load', 'repeated_scale_calls'), ('resnet'))) \
+               + [('noop', 'multiple_models')]
 
 
 
@@ -300,6 +301,23 @@ class Benchmarks:
         plan = 'concurrentScaleCalls.jmx'
         jmeter_args['scale_up_workers'] = 16
         jmeter_args['scale_down_workers'] = 2
+        return run_single_benchmark(plan, jmeter_args)
+
+    @staticmethod
+    def multiple_models():
+        """
+        Tests with 3 models
+        """
+        plan = 'multipleModelsLoadPlan.jmx'
+        jmeter_args = {
+            'url1': MODEL_MAP['noop'],
+            'url2': MODEL_MAP['lstm'],
+            'url3': MODEL_MAP['resnet'],
+            'model1_name': MODEL_MAP['noop'],
+            'model2_name': MODEL_MAP['lstm'],
+            'model3_name': MODEL_MAP['resnet'],
+            'data3': get_resource('kitten.jpg')
+        }
         return run_single_benchmark(plan, jmeter_args)
 
     @staticmethod

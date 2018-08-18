@@ -15,6 +15,8 @@ Communication message format: JSON message
 
 # pylint: disable=redefined-builtin
 
+import cProfile
+import pstats
 import socket
 import os
 import json
@@ -34,6 +36,7 @@ from mms.protocol.otf_codec.otf_message_handler import OtfCodecHandler
 
 MAX_FAILURE_THRESHOLD = 5
 debug = False
+BENCHMARK = False
 
 
 class MXNetModelServiceWorker(object):
@@ -403,9 +406,13 @@ class MXNetModelServiceWorker(object):
 
         while True:
             try:
+                if BENCHMARK:
+                    pr.disable()
+                    pr.dump_stats('/tmp/mmsPythonProfile.prof')
                 data = self.recv_msg(cl_socket)
                 cmd, msg = self.codec.retrieve_msg(data=data)
-
+                if BENCHMARK:
+                    pr.enable()
                 if cmd.lower() == u'stop':
                     self.stop_server(cl_socket)
                     exit(1)
@@ -489,8 +496,14 @@ if __name__ == "__main__":
     port = args.port
     worker = None
     try:
+        if BENCHMARK:
+            pr = cProfile.Profile()
+            pr.enable()
         worker = MXNetModelServiceWorker(sock_type, socket_name, host, port)
         worker.run_server()
+        if BENCHMARK:
+            pr.disable()
+            pr.dump_stats('/tmp/mmsPythonProfile.prof')
     except MMSError as m:
         log_error("{}".format(m.get_message()))
         exit(1)

@@ -4,14 +4,22 @@ The benchmarks measure the performance of MMS on various models and benchmarks. 
 
 ## Installation
 
-The script is mainly intended to run on a Ubuntu EC2 instance.  For this reason, we have provided an install_dependencies.sh script to install everything needed to execute the benchmark.  All you need to do is run this file and clone the MMS repo.
+### Ubuntu
+
+The script is mainly intended to run on a Ubuntu EC2 instance.  For this reason, we have provided an `install_dependencies.sh` script to install everything needed to execute the benchmark on this environment.  All you need to do is run this file and clone the MMS repo.
+
+### MacOS
+
+For mac, you should have python3 and java installed.  If you wish to run the default benchmarks featuring a docker-based instance of MMS, you will need to install docker as well.  Finally, you will need to install jmeter with plugins which can be accomplished by running `mac_install_dependencies.sh`.
+
+### Other
 
 For other environments, manual installation is necessary.  The list of dependencies to be installed can be found below or by reading the ubuntu installation script.
 
 The benchmarking script requires the following to run:
 - python3
 - A JDK and JRE
-- jmeter installed through homebrew or linuxbrew with the plugin manager and the following plugins:  jpgc-synthesis=2.1,jpgc-filterresults=2.1,jpgc-mergeresults,jpgc-cmd=2.1,jpgc-perfmon=2.1
+- jmeter installed through homebrew or linuxbrew with the plugin manager and the following plugins: jpgc-synthesis=2.1,jpgc-filterresults=2.1,jpgc-mergeresults=2.1,jpgc-cmd=2.1,jpgc-perfmon=2.1
 - Docker-ce with the current user added to the docker group
 - Nvidia-docker (for GPU)
 
@@ -39,44 +47,44 @@ We also support compound benchmarks:
 
 ## Examples
 
-Run basic latency test on default resnet-18 model
+Run basic latency test on default resnet-18 model\
 ```./benchmark.py latency```
 
 
-Run basic throughput test on default resnet-18 model.
+Run basic throughput test on default resnet-18 model.\
 ```./benchmark.py throughput```
 
 
-Run all benchmarks
+Run all benchmarks\
 ```./benchmark.py --all```
 
 
-Run using the lstm model
+Run using the lstm model\
 ```./benchmark.py latency -m lstm```
 
 
-Run on GPU (4 gpus)
+Run on GPU (4 gpus)\
 ```./benchmark.py latency -g 4```
 
 
-Run with a custom image
+Run with a custom image\
 ```./benchmark.py latency -i {imageFilePath}```
 
 
-Run with a custom model (requires custom image) - currently broken
+Run with a custom model (requires custom image)\
 ```./benchmark.py latency -c {modelUrl} -i {imageFilePath}```
 
 
-Run with custom options
+Run with custom options\
 ```./benchmark.py repeated_scale_calls --options scale_up_workers 100 scale_down_workers 10```
 
 
-Run against an already running instance of MMS
-```./benchmark.py latency --mms 127.0.0.1:8443``
-```./benchmark.py latency --mms https://localhost:8443``
+Run against an already running instance of MMS\
+```./benchmark.py latency --mms 127.0.0.1:8443``` (defaults to http)\
+```./benchmark.py latency --mms https://localhost:8443```
 
 
-Run verbose with only a single loop
+Run verbose with only a single loop\
 ```./benchmark.py latency -v -l 1```
 
 

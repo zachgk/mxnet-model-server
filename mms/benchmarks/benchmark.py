@@ -78,6 +78,10 @@ class ChDir:
         os.chdir(self.curPath)
 
 
+def basename(path):
+    return os.path.splitext(os.path.basename(path))[0]
+
+
 def get_resource(name):
     url = RESOURCE_MAP[name]
     path = os.path.join(RESOURCE_DIR, name)
@@ -105,7 +109,7 @@ def run_process(cmd, wait=True, **kwargs):
 
 def run_single_benchmark(jmx, jmeter_args=dict(), threads=100, out_dir=None):
     if out_dir is None:
-        out_dir = os.path.join(OUT_DIR, benchmark_name, os.path.basename(benchmark_model))
+        out_dir = os.path.join(OUT_DIR, benchmark_name, basename(benchmark_model))
     if os.path.exists(out_dir):
         shutil.rmtree(out_dir)
     os.makedirs(out_dir)
@@ -204,7 +208,7 @@ def run_single_benchmark(jmx, jmeter_args=dict(), threads=100, out_dir=None):
         traceback.print_exc()
 
 def run_multi_benchmark(key, xs, *args, **kwargs):
-    out_dir = os.path.join(OUT_DIR, benchmark_name, os.path.basename(benchmark_model))
+    out_dir = os.path.join(OUT_DIR, benchmark_name, basename(benchmark_model))
     if os.path.exists(out_dir):
         shutil.rmtree(out_dir)
     os.makedirs(out_dir)
@@ -222,6 +226,7 @@ def run_multi_benchmark(key, xs, *args, **kwargs):
     # files
     merge_results = os.path.join(out_dir, 'merge-results.properties')
     joined = os.path.join(out_dir, 'joined.csv')
+    reportDir = os.path.join(out_dir, 'report')
 
     # merge runs together
     inputJtls = [os.path.join(out_dirs[i], 'output.jtl') for i in range(len(xs))]
@@ -242,6 +247,12 @@ def run_multi_benchmark(key, xs, *args, **kwargs):
         baseJtl = joined
         basePrefix = ""
 
+    # build report
+    run_process('{} -g {} -o {}'.format(JMETER, joined, reportDir))
+
+    print("Merged output available at {}".format(out_dir))
+    print("Merged report generated at {}".format(os.path.join(reportDir, 'index.html')))
+
     return reports
 
 def parseModel():
@@ -256,7 +267,7 @@ def parseModel():
         plan = 'imageInputModelPlan.jmx'
         jmeter_args = {
             'url': benchmark_model,
-            'model_name': 'custom',
+            'model_name': basename(benchmark_model),
             'input_filepath': pargs.input[0]
         }
     return plan, jmeter_args

@@ -2,9 +2,6 @@
 
 ##global variables
 use_gpu="0"
-report=report.csv
-num_workers=(50 100)
-num_requests=(25 50 100)
 
 # Install Docker CLI in case it is missing
 install_docker(){
@@ -75,31 +72,19 @@ pull_docker_images(){
 #JMETER installation
 install_jmeter(){
     echo "jmeter installation"
-    if [ -d "$HOME/apache-jmeter-4.0" ]; then
+    if [ -d "$HOME/.linuxbrew/Cellar" ]; then
         echo "JMeter already installed"
     else
         echo "Installing jmeter"
-        cd /tmp &&
-        wget -c http://ftp.ps.pl/pub/apache//jmeter/binaries/apache-jmeter-4.0.tgz &&
-        wget https://www.apache.org/dist/jmeter/binaries/apache-jmeter-4.0.tgz.asc &&
-        wget -O - https://www.apache.org/dist/jmeter/KEYS |gpg --import &&
-        gpg --verify apache-jmeter-4.0.tgz.asc &&
-        cd $HOME &&
-        tar -zxf /tmp/apache-jmeter-4.0.tgz &&
-        apt-get install unzip &&
-        cd /tmp &&
-        wget http://jmeter-plugins.org/downloads/file/JMeterPlugins-Standard-1.4.0.zip &&
-        wget http://jmeter-plugins.org/downloads/file/JMeterPlugins-Extras-1.4.0.zip &&
-        wget http://jmeter-plugins.org/downloads/file/JMeterPlugins-ExtrasLibs-1.4.0.zip &&
-        wget http://jmeter-plugins.org/downloads/file/JMeterPlugins-WebDriver-1.4.0.zip &&
-        wget http://jmeter-plugins.org/files/packages/jpgc-synthesis-2.1.zip &&
-        unzip -n jpgc-synthesis-2.1.zip -d /tmp &&
-        unzip -n JMeterPlugins-Standard-1.4.0.zip -d $HOME/apache-jmeter-4.0 &&
-        unzip -n JMeterPlugins-Extras-1.4.0.zip -d $HOME/apache-jmeter-4.0 &&
-        unzip -n JMeterPlugins-ExtrasLibs-1.4.0.zip -d $HOME/apache-jmeter-4.0 &&
-        unzip -n JMeterPlugins-WebDriver-1.4.0.zip -d $HOME/apache-jmeter-4.0 &&
-        cp ./lib/jmeter-plugins-cmn-jmeter-0.4.jar $HOME/apache-jmeter-4.0/lib/ &&
-        cp ./lib/ext/* $HOME/apache-jmeter-4.0/lib/ext
+        brew update || {
+        }
+        brew install jmeter --with-plugins || {
+        }
+
+        wget https://jmeter-plugins.org/get/ -O /$HOME/.linuxbrew/Cellar/jmeter/4.0/libexec/lib/ext/jmeter-plugins-manager-1.3.jar
+        wget http://search.maven.org/remotecontent?filepath=kg/apc/cmdrunner/2.2/cmdrunner-2.2.jar -O /$HOME/.linuxbrew/Cellar/jmeter/4.0/libexec/lib/cmdrunner-2.2.jar
+        java -cp /$HOME/.linuxbrew/Cellar/jmeter/4.0/libexec/lib/ext/jmeter-plugins-manager-1.3.jar org.jmeterplugins.repository.PluginManagerCMDInstaller
+        /$HOME/.linuxbrew/Cellar/jmeter/4.0/libexec/bin/PluginsManagerCMD.sh install jpgc-synthesis=2.1,jpgc-filterresults=2.1,jpgc-mergeresults=2.1,jpgc-cmd=2.1,jpgc-perfmon=2.1
         if [[ `echo $?` != 0 ]] ; then
             echo "ERROR: Exiting as jmeter installation failed"
             exit 1
@@ -115,11 +100,6 @@ prepare_repo(){
     if [ ! -d "/mxnet-model-server" ]; then
         git clone https://github.com/awslabs/mxnet-model-server.git
     fi
-sed -i -e 's/squeezenet=https:\/\/s3.amazonaws.com\/model-server\/models\/squeezenet_v1.1\/squeezenet_v1.1.model/resnet-18=https:\/\/s3.amazonaws.com\/model-server\/models\/resnet-18\/resnet-18.model /g'\
- /mxnet-model-server/docker/mms_app_cpu.conf &&
-sed -i -e 's/squeezenet=https:\/\/s3.amazonaws.com\/model-server\/models\/squeezenet_v1.1\/squeezenet_v1.1.model/resnet-18=https:\/\/s3.amazonaws.com\/model-server\/models\/resnet-18\/resnet-18.model /g'\
- /mxnet-model-server/docker/mms_app_gpu.conf &&
-sed -i -e 's/\/usr\/local\/Cellar\/jmeter\/3.3\/libexec\/lib\/ext\/CMDRunner.jar/\/home\/ubuntu\/apache-jmeter-4.0\/lib\/ext\/CMDRunner.jar /g' /mxnet-model-server/load-test/run_load_test.sh
     if [[ `echo $?` != 0 ]] ; then
         echo "ERROR: Exiting as preparation of repository failed"
         exit 1
@@ -167,6 +147,7 @@ start_mms_cpu(){
 start_mms_gpu(){
     echo "starting mms for gpu runs"
     nvidia-docker run --name mms -v /mxnet-model-server:/mxnet-model-server -itd -p 80:8080 awsdeeplearningteam/mms_gpu
+
     nvidia-docker exec mms pip install -U -e /mxnet-model-server/. >& /dev/null &&
     nvidia-docker exec mms pip uninstall --yes mxnet-cu90mkl  >& /dev/null &&
     nvidia-docker exec mms pip uninstall --yes mxnet  >& /dev/null &&
@@ -186,52 +167,28 @@ start_mms_gpu(){
     sleep 90
 }
 
-start_jmeter(){
-    echo "start sending jmeter requests"
-    cd /mxnet-model-server/load-test
-    ./run_load_test.sh -i 127.0.0.1 -c $workers -n $requests -f $report -p 80
-    if [[ `echo $?` != 0 ]] ; then
-        echo "ERROR: Exiting as jmeter startup failed"
-        remove_container_images
-        exit 1
-    fi
-    echo "done report generation"
-}
-
-remove_container_images(){
-     service docker stop && service docker start
-     echo "docker restarted"
-     docker rm -f mms
-     echo "container removed"
-}
-
 run_test(){
     export JMETER_HOME=$HOME/apache-jmeter-4.0
     export PATH=$JMETER_HOME/bin:$PATH
-    for workers in ${num_workers[@]}
-    do
-        for requests in ${num_requests[@]}
-        do
-            echo "*************************************** Workers $workers and reqs $requests   ****************************************************"
-            if [ "$use_gpu" == "0" ]; then
-                start_mms_cpu
-            elif [ "$use_gpu" == "1" ]; then
-                start_mms_gpu
-            fi
-            start_jmeter
-            parse_csv_log
-            service docker stop && service docker start
-            echo "docker restarted"
-            docker rm -f mms
-            echo "container removed"
-        done
-    done
+    if [ "$use_gpu" == "0" ]; then
+        docker=awsdeeplearningteam/mms_cpu
+    elif [ "$use_gpu" == "1" ]; then
+        docker=awsdeeplearningteam/mms_gpu
+    fi
+    cd /mxnet-model-server/mms/benchmarks
+    ./benchmark.py --all -d $docker -g $use_gpu
+    if [[ `echo $?` != 0 ]] ; then
+        echo "ERROR: Exiting as benchmark startup failed"
+        remove_container_images
+        exit 1
+    fi
+    # parse_csv_log
 }
 
 main(){
     #Get option to run test on GPU/CPU image
     while getopts "g:" option; do
-	echo "Parsing Args"
+    echo "Parsing Args"
         case $option in
             g)      use_gpu=$OPTARG;;
         esac
@@ -247,8 +204,6 @@ main(){
     run_test
     service docker stop && service docker start
     echo "docker restarted"
-    docker rm -f hw
-    echo "container removed"
 }
 
 main "$@"

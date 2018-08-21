@@ -127,6 +127,10 @@ def run_single_benchmark(jmx, jmeter_args=dict(), threads=100, out_dir=None):
         # Start MMS
         docker = 'nvidia-docker' if pargs.gpus else 'docker'
         container = 'mms_benchmark_gpu' if pargs.gpus else 'mms_benchmark_cpu'
+        docker_path = 'vamshidhardk/mms_netty'
+        if pargs.docker:
+            container = 'mms_benchmark_{}'.format(pargs.docker.split('/')[1])
+            docker_path = pargs.docker
         docker_check_call = "{} ps".format(docker)
         docker_check = run_process(docker_check_call, stdout=subprocess.PIPE)
         docker_check_all_call = "{} ps -a".format(docker)
@@ -136,7 +140,7 @@ def run_single_benchmark(jmx, jmeter_args=dict(), threads=100, out_dir=None):
                 docker_run_call = "{} start {}".format(docker, container)
                 run_process(docker_run_call)
             else:
-                docker_run_call = "{} run --name {} -p 8080:8080 -v {}:/mxnet-model-server -itd vamshidhardk/mms_netty".format(docker, container, MMS_BASE)
+                docker_run_call = "{} run --name {} -p 8080:8080 -v {}:/mxnet-model-server -itd {}".format(docker, container, MMS_BASE, docker_path)
                 run_process(docker_run_call)
                 run_process("{} exec -it {} sh -c 'cd /mxnet-model-server && pip install -U -e .'".format(docker, container), shell=True)
 
@@ -361,6 +365,7 @@ if __name__ == '__main__':
     model.add_argument('-m', '--model', nargs=1, type=str, dest='model', default=['resnet'], choices=MODEL_MAP.keys(), help='A preloaded model to run.  It defaults to resnet')
     model.add_argument('-c', '--custom-model', nargs=1, type=str, dest='model', help='The path to a custom model to run.  The input argument must also be passed. Currently broken')
 
+    parser.add_argument('-d', '--docker', nargs=1, type=str, default=None, help='Docker hub path to use')
     parser.add_argument('-i', '--input', nargs=1, type=str, default=None, help='The input to feed to the test')
     parser.add_argument('-g', '--gpus', nargs=1, type=int, default=None, help='Number of gpus.  Leave empty to run CPU only')
     parser.add_argument('-l', '--loops', nargs=1, type=int, default=[10], help='Number of loops to run')

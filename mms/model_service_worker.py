@@ -16,7 +16,6 @@ Communication message format: JSON message
 # pylint: disable=redefined-builtin
 
 import cProfile
-import pstats
 import socket
 import os
 import json

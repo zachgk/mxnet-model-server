@@ -12,6 +12,7 @@
  */
 package com.amazonaws.ml.mms.util.messages;
 
+import java.io.UnsupportedEncodingException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -55,10 +56,10 @@ public class RequestBatch {
         modelInputs.add(modelInput);
     }
 
-    public String getStringParameter(String key) {
+    public String getStringParameter(String key) throws UnsupportedEncodingException{
         for (ModelInputs param : modelInputs) {
             if (key.equals(param.getName())) {
-                return param.getValue();
+                    return new String(param.getValue(), "UTF-8");
             }
         }
         return null;

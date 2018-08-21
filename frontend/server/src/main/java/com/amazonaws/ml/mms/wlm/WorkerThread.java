@@ -35,6 +35,7 @@ import io.netty.handler.codec.DelimiterBasedFrameDecoder;
 import io.netty.handler.codec.Delimiters;
 import io.netty.handler.codec.string.StringDecoder;
 import java.io.IOException;
+import java.io.UnsupportedEncodingException;
 import java.net.SocketAddress;
 import java.util.List;
 import java.util.concurrent.ArrayBlockingQueue;
@@ -102,11 +103,12 @@ public class WorkerThread extends Thread {
         try {
             while (running.get()) {
                 req = aggregator.getRequest(getName());
+
                 backendChannel.write(req);
                 backendChannel.flush();
 
                 // TODO: Change this to configurable param
-                ModelWorkerResponse reply = replies.poll(WORKER_TIMEOUT, TimeUnit.MINUTES);
+                ModelWorkerResponse reply = replies.poll(Integer.MAX_VALUE, TimeUnit.MINUTES);
 
                 if (reply != null) {
                     aggregator.sendResponse(reply);
@@ -134,6 +136,8 @@ public class WorkerThread extends Thread {
                 }
                 req = null;
             }
+        } catch (UnsupportedEncodingException e) {
+            logger.error("Error while processing an input.", e);
         } catch (InterruptedException e) {
             logger.warn("Backend worker thread interrupted.", e);
         } catch (WorkerInitializationException wi) {

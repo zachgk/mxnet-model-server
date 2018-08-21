@@ -25,11 +25,12 @@ from mms.model_loader import ModelLoader
 from mms.arg_parser import ArgParser
 from mms.service_manager import ServiceManager
 from mms.log import log_msg, log_error
-from mms.utils.validators.validate_messages import ModelWorkerMessageValidators
+from mms.utils.validators.validate_json_messages import ModelWorkerMessageValidators
 from mms.utils.codec_helpers.codec import ModelWorkerCodecHelper
 from mms.mxnet_model_service_error import MMSError
 from mms.utils.model_server_error_codes import ModelServerErrorCodes as err
 from mms.metrics.metric_encoder import MetricEncoder
+from mms.protocol.otf_codec.otf_message_handler import OtfCodecHandler
 
 MAX_FAILURE_THRESHOLD = 5
 debug = False
@@ -61,6 +62,7 @@ class MXNetModelServiceWorker(object):
         self.model_services = {}
         self.service_manager = ServiceManager()
         self.send_failures = 0
+        self.codec = OtfCodecHandler()
 
         try:
             msg = "Listening on port: {}\n".format(s_name)
@@ -98,6 +100,7 @@ class MXNetModelServiceWorker(object):
         result = {}
         encoding = u'base64'
         try:
+#            self.codec.create_response(2, resp=ret, req_id_map=req_id_map, invalid_reqs=invalid_reqs)
             for idx, val in enumerate(ret):
                 result.update({"requestId": req_id_map[idx]})
                 result.update({"code": 200})
@@ -146,9 +149,6 @@ class MXNetModelServiceWorker(object):
                 # need to buffer the rest.
                 if data[-2:] == b'\r\n':
                     break
-            in_msg = json.loads(data.decode('utf8'))
-            if u'command' not in in_msg:
-                raise MMSError(err.INVALID_COMMAND, "Invalid message received")
         except (IOError, OSError) as sock_err:
             raise MMSError(err.RECEIVE_ERROR, "{}".format(repr(sock_err)))
         except ValueError as v:
@@ -158,7 +158,7 @@ class MXNetModelServiceWorker(object):
         except Exception as e:  # pylint: disable=broad-except
             raise MMSError(err.UNKNOWN_EXCEPTION, "{}".format(e))
 
-        return in_msg['command'], in_msg
+        return data
 
     def retrieve_model_input(self, model_inputs):
         """
@@ -403,16 +403,18 @@ class MXNetModelServiceWorker(object):
 
         while True:
             try:
-                cmd, data = self.recv_msg(cl_socket)
+                data = self.recv_msg(cl_socket)
+                cmd, msg = self.codec.retrieve_msg(data=data)
+
                 if cmd.lower() == u'stop':
                     self.stop_server(cl_socket)
                     exit(1)
                 elif cmd.lower() == u'predict':
-                    predictions, result, code = self.predict(data)
+                    predictions, result, code = self.predict(msg)
                 elif cmd.lower() == u'load':
-                    result, code = self.load_model(data)
+                    result, code = self.load_model(msg)
                 elif cmd.lower() == u'unload':
-                    result, code = self.unload_model(data)
+                    result, code = self.unload_model(msg)
                 else:
                     result = "Received unknown command: {}".format(cmd)
                     code = err.UNKNOWN_COMMAND

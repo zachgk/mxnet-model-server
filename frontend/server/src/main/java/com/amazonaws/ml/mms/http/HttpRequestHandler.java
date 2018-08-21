@@ -35,6 +35,8 @@ import io.netty.handler.codec.http.HttpResponseStatus;
 import io.netty.handler.codec.http.HttpUtil;
 import io.netty.handler.codec.http.QueryStringDecoder;
 import io.netty.handler.codec.http.multipart.HttpPostRequestDecoder;
+
+import java.io.UnsupportedEncodingException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -228,7 +230,7 @@ public class HttpRequestHandler extends SimpleChannelInboundHandler<FullHttpRequ
             if (modelName == null) {
                 modelName = input.getStringParameter("model_name");
             }
-        } catch (IllegalArgumentException e) {
+        } catch (UnsupportedEncodingException | IllegalArgumentException e) {
             NettyUtils.sendError(
                     ctx,
                     HttpResponseStatus.BAD_REQUEST,

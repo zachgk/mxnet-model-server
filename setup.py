@@ -123,7 +123,7 @@ class BuildFrontEnd(Command):
         cwd = os.getcwd()
         os.chdir(os.path.abspath('./frontend/'))
         try:
-            subprocess.check_call('./gradlew build', shell=True)
+            subprocess.check_call('./gradlew jar', shell=True)
         except OSError:
             assert 0, "build failed"
         os.chdir(cwd)

@@ -18,6 +18,8 @@ import com.amazonaws.ml.mms.util.messages.ModelLoadModelRequest;
 import com.amazonaws.ml.mms.util.messages.ModelWorkerResponse;
 import com.amazonaws.ml.mms.util.messages.Predictions;
 import com.amazonaws.ml.mms.util.messages.RequestBatch;
+
+import java.io.UnsupportedEncodingException;
 import java.nio.charset.Charset;
 import java.util.Base64;
 import java.util.LinkedHashMap;
@@ -37,7 +39,7 @@ public class BatchAggregator {
         jobs = new LinkedHashMap<>();
     }
 
-    public BaseModelRequest getRequest(String threadName) throws InterruptedException {
+    public BaseModelRequest getRequest(String threadName) throws InterruptedException, UnsupportedEncodingException {
         jobs.clear();
 
         // first job is a blocking call;

@@ -10,7 +10,7 @@
 
 import pytest
 from mms.mxnet_model_service_error import MMSError
-from mms.utils.validators.validate_messages import ModelWorkerMessageValidators
+from mms.utils.validators.validate_json_messages import ModelWorkerMessageValidators
 from mms.utils.model_server_error_codes import ModelServerErrorCodes
 
 

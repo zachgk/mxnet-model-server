@@ -21,7 +21,6 @@ public class ModelLoadModelRequest extends BaseModelRequest {
      * load a particular model.
      */
     private String modelPath;
-
     private String handler;
     private int batchSize;
     private String gpu;

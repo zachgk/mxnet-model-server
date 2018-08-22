@@ -140,7 +140,12 @@ class MXNetModelServiceWorker(object):
         data = b''
         try:
             while True:
+                if BENCHMARK:
+                    pr.disable()
+                    pr.dump_stats('/tmp/mmsPythonProfile.prof')
                 pkt = client_sock.recv(1024)
+                if BENCHMARK:
+                    pr.enable()
                 if not pkt:
                     exit(1)
 
@@ -405,13 +410,8 @@ class MXNetModelServiceWorker(object):
 
         while True:
             try:
-                if BENCHMARK:
-                    pr.disable()
-                    pr.dump_stats('/tmp/mmsPythonProfile.prof')
                 data = self.recv_msg(cl_socket)
                 cmd, msg = self.codec.retrieve_msg(data=data)
-                if BENCHMARK:
-                    pr.enable()
                 if cmd.lower() == u'stop':
                     self.stop_server(cl_socket)
                     exit(1)
@@ -461,7 +461,12 @@ class MXNetModelServiceWorker(object):
             try:
                 log_msg("Waiting for a connection")
 
+                if BENCHMARK:
+                    pr.disable()
+                    pr.dump_stats('/tmp/mmsPythonProfile.prof')
                 (cl_socket, _) = self.sock.accept()
+                if BENCHMARK:
+                    pr.enable()
                 self.handle_connection(cl_socket)
                 if debug is False:
                     exit(1)
